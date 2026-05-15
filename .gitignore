@@ -1,0 +1,34 @@
+# Dependencies
+node_modules/
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+env/
+
+# Environment / secrets (NEVER commit real credentials)
+.env
+backend/.env
+frontend/.env
+
+# Build output
+dist/
+build/
+
+# Logs
+*.log
+nse_watcher.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+*.swp
+
+# Data files (bhavcopy CSVs can be large)
+*.csv
+bhavcopy/

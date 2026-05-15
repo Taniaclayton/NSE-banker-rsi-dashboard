@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Banker RSI Dashboard</title>
+    <style>
+      * { box-sizing: border-box; margin: 0; padding: 0; }
+      body { background: #f8f8f6; font-family: system-ui, sans-serif; color: #1a1a18; }
+      :root {
+        --font-sans: system-ui, -apple-system, sans-serif;
+        --font-mono: ui-monospace, monospace;
+        --color-background-primary: #ffffff;
+        --color-background-secondary: #f1efe8;
+        --color-background-info: #e6f1fb;
+        --color-background-success: #eaf3de;
+        --color-background-danger: #fcebeb;
+        --color-background-warning: #faeeda;
+        --color-text-primary: #1a1a18;
+        --color-text-secondary: #5f5e5a;
+        --color-text-info: #185fa5;
+        --color-text-success: #3b6d11;
+        --color-text-danger: #a32d2d;
+        --color-text-warning: #854f0b;
+        --color-border-tertiary: rgba(0,0,0,0.12);
+        --color-border-secondary: rgba(0,0,0,0.22);
+        --color-border-primary: rgba(0,0,0,0.35);
+        --color-border-info: #185fa5;
+        --border-radius-md: 8px;
+        --border-radius-lg: 12px;
+      }
+      @media (prefers-color-scheme: dark) {
+        body { background: #1a1a18; color: #f0ede6; }
+        :root {
+          --color-background-primary: #2c2c2a;
+          --color-background-secondary: #232321;
+          --color-background-info: #0c447c;
+          --color-background-success: #27500a;
+          --color-background-danger: #791f1f;
+          --color-background-warning: #633806;
+          --color-text-primary: #f0ede6;
+          --color-text-secondary: #b4b2a9;
+          --color-text-info: #85b7eb;
+          --color-text-success: #c0dd97;
+          --color-text-danger: #f09595;
+          --color-text-warning: #fac775;
+          --color-border-tertiary: rgba(255,255,255,0.1);
+          --color-border-secondary: rgba(255,255,255,0.2);
+          --color-border-primary: rgba(255,255,255,0.35);
+        }
+      }
+      select, input { 
+        background: var(--color-background-primary); 
+        color: var(--color-text-primary); 
+        border: 0.5px solid var(--color-border-secondary); 
+        border-radius: 6px; 
+        outline: none; 
+      }
+      select:focus, input:focus { border-color: var(--color-border-info); }
+      table { font-size: 13px; }
+      tbody tr:hover { background: var(--color-background-secondary); }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>
