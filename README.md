@@ -95,7 +95,9 @@ npm run build
 ---
 
 ## NSE CSV format
-
+## Data
+Download NSE bhavcopy CSVs from https://www.nseindia.com/all-reports or https://www.samco.in/bhavcopy-nse-bse-mcx
+Place them in the folder set as EOD_FOLDER in your backend/.env
 The loader expects NSE Bhavcopy files named:
 - `YYYYMMDD_NSE.csv` (e.g. `20240523_NSE.csv`)
 - `NSE_YYYYMMDD.csv`
