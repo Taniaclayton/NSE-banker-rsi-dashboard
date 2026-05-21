@@ -15,7 +15,7 @@ Also generates TradingView watchlist strings for each signal tier.
 ## Architecture
 
 ```
-bhavcopy/               ← NSE daily CSV files dropped here
+data/               ← NSE daily CSV files dropped here
 backend/
   nse_to_mysql_with_banker_signal.py   ← loader: CSV → MySQL
   nse_watcher.py                       ← file watcher (auto-loads new CSVs)
