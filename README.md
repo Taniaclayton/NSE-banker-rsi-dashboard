@@ -15,13 +15,20 @@ Also generates TradingView watchlist strings for each signal tier.
 ## Architecture
 
 ```
-data/               ← NSE daily CSV files dropped here
+data/               ← NSE daily CSV files dropped here (gitignored)
 backend/
-  nse_to_mysql_with_banker_signal.py   ← loader: CSV → MySQL
+  nse_to_mysql_with_banker_signal.py   ← loader: CSV → MySQL (with RSI warm-up)
   nse_watcher.py                       ← file watcher (auto-loads new CSVs)
   nse_api.py                           ← Flask REST API
+  downloader.py                        ← auto-downloads daily bhavcopy CSVs
+  requirements.txt
+  .env.example                         ← copy to .env and fill in your details
 frontend/
   src/NseApp.jsx                       ← React dashboard UI
+  src/main.jsx
+  index.html
+  package.json
+  vite.config.js
 ```
 
 ---
@@ -39,22 +46,30 @@ frontend/
 ```bash
 cd backend
 
-# 1. Install Python dependencies
+# 1. Create and activate a virtual environment (recommended)
+python3 -m venv venv
+venv\Scripts\activate        # Windows
+# source venv/bin/activate   # macOS/Linux
+
+# 2. Install Python dependencies
 pip install -r requirements.txt
 
-# 2. Configure credentials
+# 3. Configure credentials
 cp .env.example .env
 # Edit .env — set DB_HOST, DB_USER, DB_PASSWORD, EOD_FOLDER
 
-# 3. Load historical data (run once, or whenever you have a batch of CSVs)
+# 4. Load historical data (run once with all your CSVs in EOD_FOLDER)
 python nse_to_mysql_with_banker_signal.py
 
-# 4. Start the API server
+# 5. Start the API server
 python nse_api.py
 # API runs on http://localhost:5001
 
-# 5. (Optional) Auto-load new CSVs as they arrive
+# 6. (Optional) Auto-load new CSVs as they arrive
 python nse_watcher.py
+
+# 7. (Optional) Auto-download today's bhavcopy
+python downloader.py
 ```
 
 ### `.env` reference
@@ -66,8 +81,9 @@ python nse_watcher.py
 | `DB_NAME` | `nse_eod` | Database name (auto-created) |
 | `DB_USER` | `root` | MySQL username |
 | `DB_PASSWORD` | *(empty)* | MySQL password |
-| `EOD_FOLDER` | `./bhavcopy` | Folder with `*_NSE.csv` files |
-| `SERIES_FILTER` | `EQ` | Series to load (`EQ`, or leave blank for all) |
+| `EOD_FOLDER` | `./data` | Folder where bhavcopy CSVs are placed |
+| `LOADER_SCRIPT` | `./nse_to_mysql_with_banker_signal.py` | Path to loader (used by watcher) |
+| `PYTHON_PATH` | `python3` | Python executable (used by watcher) |
 | `FLASK_PORT` | `5001` | Port for the API server |
 
 ---
@@ -80,29 +96,35 @@ cd frontend
 # 1. Install dependencies
 npm install
 
-# 2. Configure API URL (optional — defaults to localhost:5001)
-cp .env.example .env
-# Edit VITE_API_URL if your API runs on a different host/port
-
-# 3. Start dev server
+# 2. Start dev server
 npm run dev
 # Dashboard at http://localhost:3001
 
-# 4. Production build
+# 3. Production build
 npm run build
 ```
 
 ---
 
-## NSE CSV format
 ## Data
-Download NSE bhavcopy CSVs from https://www.nseindia.com/all-reports or https://www.samco.in/bhavcopy-nse-bse-mcx
-Place them in the folder set as EOD_FOLDER in your backend/.env
+
+Download NSE bhavcopy CSVs from [nseindia.com](https://www.nseindia.com/all-reports) or [samco.in/bhavcopy](https://www.samco.in/bhavcopy-nse-bse-mcx) and place them in the folder set as `EOD_FOLDER` in your `backend/.env`.
+
 The loader expects NSE Bhavcopy files named:
 - `YYYYMMDD_NSE.csv` (e.g. `20240523_NSE.csv`)
 - `NSE_YYYYMMDD.csv`
 
 Required columns: `SYMBOL, SERIES, OPEN, HIGH, LOW, CLOSE, LAST, PREVCLOSE, TOTTRDQTY, TOTTRDVAL, TIMESTAMP, TOTALTRADES, ISIN`
+
+### How the loader handles daily updates
+
+When a new CSV is detected, the loader:
+1. Fetches the last 100 rows per ticker from the DB as RSI warm-up history
+2. Prepends that history to the new file's rows
+3. Computes the full RSI + Banker signal chain over the combined series
+4. Upserts only the new date's rows into MySQL
+
+This ensures `banker_rsi` is always correctly computed regardless of how many new files are loaded at once. Tickers with fewer than 50 rows of total history will have `NULL` signal columns until enough data accumulates.
 
 ---
 
@@ -121,7 +143,8 @@ Required columns: `SYMBOL, SERIES, OPEN, HIGH, LOW, CLOSE, LAST, PREVCLOSE, TOTT
 
 - The dashboard auto-refreshes the date list every 60 seconds — useful when running alongside the watcher.
 - The loader uses `ON DUPLICATE KEY UPDATE`, so re-running it on the same files is safe.
-- Tickers with fewer than 50 rows of history will have `NULL` for all signal columns (RSI period = 50).
+- If you need to recompute signals for already-loaded dates (e.g. after a fix), temporarily set `loaded_dates = set()` in the loader's `__main__` block, run it, then restore.
+- The `.env` file is gitignored — never committed. Copy `.env.example` to `.env` and fill in your own credentials.
 
 ---
 
