@@ -10,9 +10,8 @@ buy signals based on three criteria:
 
 Also exposes banker_bull, banker_ma, and banker_signal from the NSE table.
 
-Setup:
-    pip install flask flask-cors mysql-connector-python python-dotenv
-    cp .env.example .env   # then edit .env with your DB credentials
+Run:
+    pip install flask flask-cors mysql-connector-python
     python nse_api.py
 
 Endpoints:
@@ -22,33 +21,26 @@ Endpoints:
     GET /api/health                       — DB connectivity + row count
 """
 
-import os
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 import mysql.connector
 from collections import defaultdict
 
-# Load .env if present
-try:
-    from dotenv import load_dotenv
-    load_dotenv()
-except ImportError:
-    pass
-
 app = Flask(__name__)
 CORS(app)  # allow React dev server to call this API
 
-DB_CONFIG = {
-    "host":        os.getenv("DB_HOST",     "localhost"),
-    "port":        int(os.getenv("DB_PORT", "3306")),
-    "database":    os.getenv("DB_NAME",     "nse_eod"),
-    "user":        os.getenv("DB_USER",     "root"),
-    "password":    os.getenv("DB_PASSWORD", ""),
-    "use_pure":    True,
-    "auth_plugin": "mysql_native_password",
-}
+from dotenv import load_dotenv
+import os
+load_dotenv()
 
-FLASK_PORT = int(os.getenv("FLASK_PORT", "5001"))
+DB_CONFIG = {
+    "host":     os.getenv("DB_HOST", "localhost"),
+    "port":     int(os.getenv("DB_PORT", 3306)),
+    "database": os.getenv("DB_NAME", "nse_eod"),
+    "user":     os.getenv("DB_USER", "root"),
+    "password": os.getenv("DB_PASSWORD", ""),
+    "use_pure": True,
+}
 
 
 def get_conn():
@@ -77,38 +69,47 @@ def get_recent_dates(n: int) -> list[str]:
 
 def compute_signals_for_date(trade_date: str) -> list[dict]:
     """
-    For each ticker (EQ series), look back up to 7 rows including trade_date.
-    Returns a list of signal dicts.
+    For each ticker (EQ series), fetch only the last 7 rows per ticker
+    up to and including trade_date using a SQL window function.
+    This avoids pulling millions of rows and filtering in Python.
     """
     conn = get_conn()
     cur  = dict_cursor(conn)
 
-    # Pull the last 7 rows per ticker up to and including trade_date (EQ series only)
+    # Use ROW_NUMBER() to fetch only the 7 most recent rows per ticker.
+    # This runs entirely in MySQL — Python receives ~14k rows max instead of millions.
     query = """
         SELECT ticker, series, trade_date, banker_rsi, banker_ma,
                banker_signal, banker_bull, close
-        FROM nse_eod
-        WHERE trade_date <= %s
-          AND banker_rsi IS NOT NULL
-          AND series = 'EQ'
+        FROM (
+            SELECT ticker, series, trade_date, banker_rsi, banker_ma,
+                   banker_signal, banker_bull, close,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY ticker
+                       ORDER BY trade_date DESC
+                   ) AS rn
+            FROM nse_eod
+            WHERE trade_date <= %s
+              AND banker_rsi IS NOT NULL
+              AND series = 'EQ'
+        ) ranked
+        WHERE rn <= 7
         ORDER BY ticker, trade_date DESC
     """
     cur.execute(query, (trade_date,))
     rows = cur.fetchall()
     cur.close(); conn.close()
 
-    # Group by ticker, keeping only the 7 most recent rows
+    # Group by ticker (already limited to 7 rows each by SQL)
     ticker_rows = defaultdict(list)
     for r in rows:
-        t = r["ticker"]
-        if len(ticker_rows[t]) < 7:
-            ticker_rows[t].append(r)
+        ticker_rows[r["ticker"]].append(r)
 
     results = []
     for ticker, history in ticker_rows.items():
-        # history[0] = trade_date (today), history[1..] = prior days
+        # history[0] = most recent row (trade_date), history[1..] = prior days
         if not history or str(history[0]["trade_date"]) != trade_date:
-            continue  # no data on this exact date
+            continue  # ticker had no data on this exact date
 
         today_rsi    = float(history[0]["banker_rsi"])
         today_close  = float(history[0]["close"])
@@ -216,4 +217,4 @@ def health():
 
 
 if __name__ == "__main__":
-    app.run(debug=True, port=FLASK_PORT)
+    app.run(debug=True, port=5001)   # port 5001 so NASDAQ stays on 5000

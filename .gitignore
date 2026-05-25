@@ -31,4 +31,4 @@ Thumbs.db
 
 # Data files (bhavcopy CSVs can be large)
 *.csv
-bhavcopy/
+data/

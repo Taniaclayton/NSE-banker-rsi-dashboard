@@ -15,45 +15,39 @@ Columns stored per row (in addition to OHLCV):
   banker_ma, banker_signal, banker_bull
 
 Requirements:
-    pip install pandas mysql-connector-python numpy python-dotenv
+    pip install pandas mysql-connector-python numpy
 
 Usage:
-    1. Copy backend/.env.example → backend/.env and fill in your values.
-    2. Run: python nse_to_mysql_with_banker_signal.py
+    1. Update DB_CONFIG below with your credentials.
+    2. Set EOD_FOLDER to the folder containing your NSE CSV files.
+    3. Optionally set SERIES_FILTER to restrict to specific series (e.g. ["EQ"]).
+    4. Run: python nse_to_mysql_with_banker_signal.py
 """
 
 import os
+import sys
 import glob
 import numpy as np
 import pandas as pd
 import mysql.connector
 from mysql.connector import Error
 
-# Load .env if present (ignored in production where env vars are set directly)
-try:
-    from dotenv import load_dotenv
-    load_dotenv()
-except ImportError:
-    pass  # python-dotenv is optional; set env vars manually if not installed
-
 # ─────────────────────────────────────────────
-# CONFIGURATION — read from environment
+# CONFIGURATION  — edit these
 # ─────────────────────────────────────────────
 DB_CONFIG = {
-    "host":     os.getenv("DB_HOST",     "localhost"),
-    "port":     int(os.getenv("DB_PORT", "3306")),
-    "database": os.getenv("DB_NAME",     "nse_eod"),
-    "user":     os.getenv("DB_USER",     "root"),
-    "password": os.getenv("DB_PASSWORD", ""),
+    "host":     "localhost",
+    "port":     3306,
+    "database": "nse_eod",
+    "user":     "root",
+    "password": "root",
     "use_pure": True,
 }
 
-EOD_FOLDER = os.getenv("EOD_FOLDER", "./bhavcopy")
+EOD_FOLDER = r"D:\Trading\nse dashboard\banker dashboard\data"   # ← folder with *_NSE.csv files
 
-# Set to a comma-separated string like "EQ" to load only equity series,
-# or leave blank / unset to load all series.
-_series_env = os.getenv("SERIES_FILTER", "EQ").strip()
-SERIES_FILTER = [s.strip() for s in _series_env.split(",") if s.strip()] if _series_env else None
+# Set to a list like ["EQ"] to load only equity series, or None for all series
+SERIES_FILTER = ["EQ"]
 
 # ─────────────────────────────────────────────
 # MCDX BANKER SIGNAL PARAMETERS (match Pine)
@@ -61,6 +55,10 @@ SERIES_FILTER = [s.strip() for s in _series_env.split(",") if s.strip()] if _ser
 RSI_BASE_BANKER    = 50
 RSI_PERIOD_BANKER  = 50
 SENSITIVITY_BANKER = 1.5
+
+# How many rows of history to pull from DB per ticker to warm up the RSI
+# 50 (RSI period) + 31 (longest MA) + some buffer = 100 is safe
+HISTORY_ROWS = 100
 
 
 # ─────────────────────────────────────────────
@@ -111,7 +109,7 @@ def compute_rsi_full(series: pd.Series, period: int) -> pd.DataFrame:
 # BANKER RSI  (matches Pine rsi_function())
 # ─────────────────────────────────────────────
 def compute_banker_columns(close: pd.Series) -> pd.DataFrame:
-    rsi_df = compute_rsi_full(close, RSI_PERIOD_BANKER)
+    rsi_df = compute_rsi_full(close.astype(float), RSI_PERIOD_BANKER)
     raw    = SENSITIVITY_BANKER * (rsi_df["rsi"] - RSI_BASE_BANKER)
     rsi_df["raw_banker"] = raw
     rsi_df["banker_rsi"] = raw.clip(lower=0, upper=20)
@@ -211,8 +209,7 @@ def parse_nse_file(filepath: str) -> pd.DataFrame:
 # ─────────────────────────────────────────────
 # LOAD ALL FILES → combined DataFrame
 # ─────────────────────────────────────────────
-def load_all_files(folder: str) -> pd.DataFrame:
-    # Support both YYYYMMDD_NSE.csv and NSE_YYYYMMDD.csv naming conventions
+def load_all_files(folder: str, loaded_dates: set = None) -> pd.DataFrame:
     patterns = [
         os.path.join(folder, "*_NSE.csv"),
         os.path.join(folder, "NSE_*.csv"),
@@ -228,7 +225,22 @@ def load_all_files(folder: str) -> pd.DataFrame:
             "Expected filenames like 20240523_NSE.csv or NSE_20240523.csv"
         )
 
-    print(f"Found {len(files)} NSE file(s).")
+    if loaded_dates:
+        new_files = []
+        for f in files:
+            base = os.path.basename(f)  # e.g. 20260521_NSE.csv
+            date_part = base[:8]        # 20260521
+            date_str = f"{date_part[:4]}-{date_part[4:6]}-{date_part[6:8]}"
+            if date_str not in loaded_dates:
+                new_files.append(f)
+            else:
+                print(f"Skipping {base} — already in DB")
+        files = new_files
+
+    if not files:
+        return None
+
+    print(f"Found {len(files)} new NSE file(s).")
     frames = [parse_nse_file(f) for f in files]
     combined = pd.concat(frames, ignore_index=True)
     combined.sort_values(["ticker", "date"], inplace=True)
@@ -243,17 +255,73 @@ def load_all_files(folder: str) -> pd.DataFrame:
 
 
 # ─────────────────────────────────────────────
+# FETCH HISTORY FROM DB TO WARM UP RSI
+# ─────────────────────────────────────────────
+def fetch_history_for_tickers(tickers: list, before_date: str) -> pd.DataFrame:
+    """
+    For each ticker, pull the last HISTORY_ROWS rows before `before_date`
+    from the DB. This gives the RSI computation enough history to produce
+    valid banker_rsi values for the new date(s).
+    """
+    if not tickers:
+        return pd.DataFrame()
+
+    conn = get_connection()
+    cur  = conn.cursor(dictionary=True)
+
+    # Use ROW_NUMBER to get last HISTORY_ROWS per ticker efficiently
+    query = f"""
+        SELECT ticker, series, trade_date AS date, open, high, low, close,
+               last, prev_close, volume, trd_val, trades, isin
+        FROM (
+            SELECT ticker, series, trade_date, open, high, low, close,
+                   last, prev_close, volume, trd_val, trades, isin,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY ticker
+                       ORDER BY trade_date DESC
+                   ) AS rn
+            FROM nse_eod
+            WHERE trade_date < %s
+              AND series = 'EQ'
+              AND ticker IN ({','.join(['%s'] * len(tickers))})
+        ) ranked
+        WHERE rn <= {HISTORY_ROWS}
+        ORDER BY ticker, trade_date ASC
+    """
+    cur.execute(query, [before_date] + tickers)
+    rows = cur.fetchall()
+    cur.close()
+    conn.close()
+
+    if not rows:
+        return pd.DataFrame()
+
+    df = pd.DataFrame(rows)
+    df["date"] = pd.to_datetime(df["date"])
+
+    # Add placeholder signal columns (will be recomputed)
+    for col in ["delta", "u", "d", "avg_gain", "avg_loss", "rs", "rsi",
+                "raw_banker", "banker_rsi", "banker_ma", "banker_signal", "banker_bull"]:
+        df[col] = np.nan
+
+    print(f"  Fetched {len(df):,} history rows from DB for {len(tickers):,} tickers.")
+    return df
+
+
+# ─────────────────────────────────────────────
 # COMPUTE SIGNALS PER TICKER
 # ─────────────────────────────────────────────
-def add_banker_signals(df: pd.DataFrame) -> pd.DataFrame:
+def add_banker_signals(df: pd.DataFrame, new_dates: set = None) -> pd.DataFrame:
     """
     Group by ticker, compute all intermediate + final Banker columns,
     then merge back.
-    Tickers with < RSI_PERIOD_BANKER rows will have NaN for signal columns.
+
+    If new_dates is provided, only rows with dates in new_dates are
+    returned for upserting — history rows are used only for warm-up.
     """
     results = []
     for ticker, grp in df.groupby("ticker", sort=False):
-        grp = grp.copy()
+        grp = grp.copy().sort_values("date").reset_index(drop=True)
 
         # All intermediate RSI columns + raw_banker + banker_rsi
         cols = compute_banker_columns(grp["close"])
@@ -273,6 +341,10 @@ def add_banker_signals(df: pd.DataFrame) -> pd.DataFrame:
         # Bull flag: banker_rsi above 8.5 threshold (Pine bullish confirmation line)
         grp["banker_bull"] = (grp["banker_rsi"] > 8.5).astype(int)
 
+        # If we have history warm-up rows, only keep the new date rows for insert
+        if new_dates:
+            grp = grp[grp["date"].dt.strftime("%Y-%m-%d").isin(new_dates)]
+
         results.append(grp)
 
     enriched = pd.concat(results, ignore_index=True)
@@ -288,6 +360,19 @@ def add_banker_signals(df: pd.DataFrame) -> pd.DataFrame:
 
     return enriched
 
+
+def get_loaded_dates() -> set:
+    """Fetch all trade_dates already in the DB"""
+    try:
+        conn = get_connection()
+        cur = conn.cursor()
+        cur.execute("SELECT DISTINCT trade_date FROM nse_eod")
+        dates = {str(row[0]) for row in cur.fetchall()}
+        cur.close()
+        conn.close()
+        return dates
+    except:
+        return set()
 
 # ─────────────────────────────────────────────
 # DATABASE SETUP
@@ -416,7 +501,7 @@ def setup_database():
 # ─────────────────────────────────────────────
 # INSERT IN BATCHES
 # ─────────────────────────────────────────────
-BATCH_SIZE = 5_000
+BATCH_SIZE = 20_000
 
 
 def insert_data(df: pd.DataFrame):
@@ -480,24 +565,43 @@ def insert_data(df: pd.DataFrame):
 # ─────────────────────────────────────────────
 if __name__ == "__main__":
     print("=== NSE EOD → MySQL Loader ===\n")
-    print(f"DB host   : {DB_CONFIG['host']}:{DB_CONFIG['port']}")
-    print(f"DB name   : {DB_CONFIG['database']}")
-    print(f"EOD folder: {EOD_FOLDER}")
-    print(f"Series    : {SERIES_FILTER or 'ALL'}\n")
 
-    # 1. Load all files
-    df = load_all_files(EOD_FOLDER)
+    # 1. Load only new files
+    loaded_dates = get_loaded_dates()   # ← comment this out if you want to load all files every time (e.g. during development)
+    #loaded_dates = set()                  # ← add this line to ignore loaded dates and reprocess all files (useful during development)
+    df = load_all_files(EOD_FOLDER, loaded_dates)
+    if df is None:
+        print("No new files to process.")
+        sys.exit(0)
 
-    # 2. Compute all signals
+    # 2. Find new dates and tickers being loaded
+    new_dates = set(df["date"].dt.strftime("%Y-%m-%d").unique())
+    tickers   = df["ticker"].unique().tolist()
+    min_date  = df["date"].min().strftime("%Y-%m-%d")
+
+    # 3. Fetch history from DB to warm up RSI computation
+    print(f"Fetching RSI warm-up history for {len(tickers):,} tickers before {min_date}...")
+    history_df = fetch_history_for_tickers(tickers, min_date)
+
+    # 4. Combine history (for warm-up) + new rows, sorted by ticker+date
+    if not history_df.empty:
+        combined = pd.concat([history_df, df], ignore_index=True)
+        combined.sort_values(["ticker", "date"], inplace=True)
+        combined.reset_index(drop=True, inplace=True)
+    else:
+        print("  No history found — computing from new data only (first load or new tickers).")
+        combined = df
+
+    # 5. Compute all signals on full series (history + new)
     print("Computing RSI intermediate + Banker signals...")
-    df = add_banker_signals(df)
-    print("Signals computed.\n")
+    enriched = add_banker_signals(combined, new_dates=new_dates)
+    print(f"Signals computed — {len(enriched):,} new rows to upsert.\n")
 
-    # 3. Setup DB + table
+    # 6. Setup DB + table
     setup_database()
 
-    # 4. Insert
+    # 7. Insert only the new date rows
     print("Inserting into MySQL...")
-    insert_data(df)
+    insert_data(enriched)
 
     print("\n✓ All done!")

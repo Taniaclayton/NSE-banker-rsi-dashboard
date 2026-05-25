@@ -8,43 +8,28 @@ compute signals and insert into MySQL.
 Run once and leave it open in a terminal:
     python nse_watcher.py
 
-Setup:
-    pip install watchdog python-dotenv
-    cp .env.example .env   # then set EOD_FOLDER in .env
+Requirements:
+    pip install watchdog
+
+Edit LOADER_SCRIPT and WATCH_FOLDER below to match your paths.
 """
 
-import os
 import sys
 import time
 import subprocess
 from pathlib import Path
+from watchdog.observers import Observer
+from watchdog.events import FileSystemEventHandler
 
-# Load .env if present
-try:
-    from dotenv import load_dotenv
-    load_dotenv()
-except ImportError:
-    pass
-
-# ── CONFIGURATION — read from environment ────────────────────────────────────
-WATCH_FOLDER  = os.getenv("EOD_FOLDER", "./bhavcopy")
-LOADER_SCRIPT = os.getenv(
-    "LOADER_SCRIPT",
-    str(Path(__file__).parent / "nse_to_mysql_with_banker_signal.py"),
-)
-PYTHON = os.getenv("PYTHON_PATH", sys.executable)
+# ── EDIT THESE ────────────────────────────────────────────────────────────────
+WATCH_FOLDER  = r"D:\Trading\nse dashboard\banker dashboard\data"
+LOADER_SCRIPT = r"D:\Trading\nse_to_mysql_with_banker_signal.py"
 # ─────────────────────────────────────────────────────────────────────────────
 
+import os
 os.environ["PYTHONIOENCODING"] = "utf-8"
-
-try:
-    from watchdog.observers import Observer
-    from watchdog.events import FileSystemEventHandler
-except ImportError:
-    print("ERROR: watchdog not installed. Run: pip install watchdog")
-    sys.exit(1)
-
-running = False  # prevent overlapping runs
+PYTHON  = r"D:\Programs\python\python.exe"   # same Python that runs this script
+running = False                               # prevent overlapping runs
 
 
 class NewFileHandler(FileSystemEventHandler):
@@ -101,7 +86,6 @@ if __name__ == "__main__":
     watch_path = Path(WATCH_FOLDER)
     if not watch_path.exists():
         print(f"ERROR: Watch folder not found: {WATCH_FOLDER}")
-        print("Set EOD_FOLDER in your .env file.")
         sys.exit(1)
 
     print(f"[nse_watcher] Watching : {WATCH_FOLDER}")
