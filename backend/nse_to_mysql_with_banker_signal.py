@@ -35,16 +35,20 @@ from mysql.connector import Error
 # ─────────────────────────────────────────────
 # CONFIGURATION  — edit these
 # ─────────────────────────────────────────────
+from dotenv import load_dotenv
+import os
+load_dotenv()
+
 DB_CONFIG = {
-    "host":     "localhost",
-    "port":     3306,
-    "database": "nse_eod",
-    "user":     "root",
-    "password": "root",
+    "host":     os.getenv("DB_HOST", "localhost"),
+    "port":     int(os.getenv("DB_PORT", "3306")),
+    "database": os.getenv("DB_NAME", "nse_eod"),
+    "user":     os.getenv("DB_USER", "root"),
+    "password": os.getenv("DB_PASSWORD", ""),
     "use_pure": True,
 }
 
-EOD_FOLDER = r"D:\Trading\nse dashboard\banker dashboard\data"   # ← folder with *_NSE.csv files
+EOD_FOLDER = os.getenv("EOD_FOLDER", "./data")
 
 # Set to a list like ["EQ"] to load only equity series, or None for all series
 SERIES_FILTER = ["EQ"]
@@ -263,6 +267,7 @@ def fetch_history_for_tickers(tickers: list, before_date: str) -> pd.DataFrame:
     from the DB. This gives the RSI computation enough history to produce
     valid banker_rsi values for the new date(s).
     """
+    tickers = list(tickers)  # convert numpy array to plain Python list
     if not tickers:
         return pd.DataFrame()
 
@@ -285,26 +290,46 @@ def fetch_history_for_tickers(tickers: list, before_date: str) -> pd.DataFrame:
               AND series = 'EQ'
               AND ticker IN ({','.join(['%s'] * len(tickers))})
         ) ranked
-        WHERE rn <= {HISTORY_ROWS}
+        SELECT ticker, trade_date AS date, close
+        FROM nse_eod
+        WHERE trade_date < %s
+            AND series = 'EQ'
+            AND ticker IN ({','.join(['%s'] * len(tickers))})
         ORDER BY ticker, trade_date ASC
     """
-    cur.execute(query, [before_date] + tickers)
-    rows = cur.fetchall()
+    all_rows = []
+    CHUNK = 200  # fetch 200 tickers at a time
+
+    for i in range(0, len(tickers), CHUNK):
+        chunk = tickers[i : i + CHUNK]
+        placeholders = ','.join(['%s'] * len(chunk))
+        query = f"""
+            SELECT ticker, series, trade_date AS date, open, high, low, close,
+                   last, prev_close, volume, trd_val, trades, isin
+            FROM nse_eod
+            WHERE trade_date < %s
+              AND series = 'EQ'
+              AND ticker IN ({placeholders})
+            ORDER BY ticker, trade_date ASC
+        """
+        cur.execute(query, [before_date] + chunk)
+        all_rows.extend(cur.fetchall())
+        print(f"  Fetched history: {min(i+CHUNK, len(tickers))}/{len(tickers)} tickers...", end="\r")
+
     cur.close()
     conn.close()
 
-    if not rows:
+    if not all_rows:
         return pd.DataFrame()
 
-    df = pd.DataFrame(rows)
+    df = pd.DataFrame(all_rows)
     df["date"] = pd.to_datetime(df["date"])
 
-    # Add placeholder signal columns (will be recomputed)
     for col in ["delta", "u", "d", "avg_gain", "avg_loss", "rs", "rsi",
                 "raw_banker", "banker_rsi", "banker_ma", "banker_signal", "banker_bull"]:
         df[col] = np.nan
 
-    print(f"  Fetched {len(df):,} history rows from DB for {len(tickers):,} tickers.")
+    print(f"\n  Fetched {len(df):,} history rows from DB for {len(tickers):,} tickers.")
     return df
 
 
@@ -497,6 +522,14 @@ def setup_database():
     conn.close()
     print(f"Database `{DB_CONFIG['database']}` and table `nse_eod` ready.")
 
+def is_seed_valid(ticker, conn):
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT COUNT(*) FROM nse_eod 
+        WHERE ticker = %s AND series = 'EQ'
+    """, (ticker,))
+    count = cur.fetchone()[0]
+    return count >= 85  # minimum candles for valid signal
 
 # ─────────────────────────────────────────────
 # INSERT IN BATCHES
@@ -566,6 +599,9 @@ def insert_data(df: pd.DataFrame):
 if __name__ == "__main__":
     print("=== NSE EOD → MySQL Loader ===\n")
 
+    # 1. Setup DB FIRST, before querying it
+    setup_database()
+
     # 1. Load only new files
     loaded_dates = get_loaded_dates()   # ← comment this out if you want to load all files every time (e.g. during development)
     #loaded_dates = set()                  # ← add this line to ignore loaded dates and reprocess all files (useful during development)
@@ -597,8 +633,6 @@ if __name__ == "__main__":
     enriched = add_banker_signals(combined, new_dates=new_dates)
     print(f"Signals computed — {len(enriched):,} new rows to upsert.\n")
 
-    # 6. Setup DB + table
-    setup_database()
 
     # 7. Insert only the new date rows
     print("Inserting into MySQL...")

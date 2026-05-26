@@ -1,21 +1,74 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 
-const API = import.meta.env.VITE_API_URL || "http://localhost:5001/api";   // NSE API runs on 5001
+const API = import.meta.env.VITE_API_URL || "http://localhost:5001/api";
 
 const BADGE = {
-  five_day:  { label: "5-day setup",  bg: "#EAF3DE", color: "#3B6D11", border: "#639922" },
-  three_day: { label: "3-day setup",  bg: "#E6F1FB", color: "#185FA5", border: "#378ADD" },
-  immediate: { label: "RSI > 0",      bg: "#FAEEDA", color: "#854F0B", border: "#BA7517" },
-  bull:      { label: "Bull ▲",       bg: "#F0FFF4", color: "#276749", border: "#48BB78" },
+  five_day:  { label: "5-day setup", bg: "#EAF3DE", color: "#3B6D11", border: "#639922",
+               darkBg: "#1a3a06", darkColor: "#c0dd97", darkBorder: "#4a7a18" },
+  three_day: { label: "3-day setup", bg: "#E6F1FB", color: "#185FA5", border: "#378ADD",
+               darkBg: "#0c2f5a", darkColor: "#85b7eb", darkBorder: "#2a6aaa" },
+  immediate: { label: "RSI > 0",     bg: "#FAEEDA", color: "#854F0B", border: "#BA7517",
+               darkBg: "#3d2200", darkColor: "#fac775", darkBorder: "#8a5010" },
+  bull:      { label: "Bull ▲",      bg: "#F0FFF4", color: "#276749", border: "#48BB78",
+               darkBg: "#0d3320", darkColor: "#68d391", darkBorder: "#2f855a" },
 };
 
-function Badge({ type }) {
+const LIGHT_VARS = `
+  --color-background-primary: #ffffff;
+  --color-background-secondary: #f1efe8;
+  --color-background-info: #e6f1fb;
+  --color-background-success: #eaf3de;
+  --color-background-danger: #fcebeb;
+  --color-background-warning: #faeeda;
+  --color-text-primary: #1a1a18;
+  --color-text-secondary: #5f5e5a;
+  --color-text-info: #185fa5;
+  --color-text-success: #3b6d11;
+  --color-text-danger: #a32d2d;
+  --color-text-warning: #854f0b;
+  --color-border-tertiary: rgba(0,0,0,0.10);
+  --color-border-secondary: rgba(0,0,0,0.22);
+  --color-border-primary: rgba(0,0,0,0.35);
+  --color-border-info: #185fa5;
+  --font-sans: system-ui, -apple-system, sans-serif;
+  --font-mono: ui-monospace, monospace;
+  --border-radius-md: 8px;
+  --border-radius-lg: 12px;
+`;
+
+const DARK_VARS = `
+  --color-background-primary: #2c2c2a;
+  --color-background-secondary: #232321;
+  --color-background-info: #0c447c;
+  --color-background-success: #27500a;
+  --color-background-danger: #791f1f;
+  --color-background-warning: #633806;
+  --color-text-primary: #f0ede6;
+  --color-text-secondary: #b4b2a9;
+  --color-text-info: #85b7eb;
+  --color-text-success: #c0dd97;
+  --color-text-danger: #f09595;
+  --color-text-warning: #fac775;
+  --color-border-tertiary: rgba(255,255,255,0.08);
+  --color-border-secondary: rgba(255,255,255,0.18);
+  --color-border-primary: rgba(255,255,255,0.35);
+  --color-border-info: #85b7eb;
+  --font-sans: system-ui, -apple-system, sans-serif;
+  --font-mono: ui-monospace, monospace;
+  --border-radius-md: 8px;
+  --border-radius-lg: 12px;
+`;
+
+function Badge({ type, dark }) {
   const s = BADGE[type];
   return (
     <span style={{
       fontSize: 11, fontWeight: 500, padding: "2px 8px",
-      borderRadius: 4, border: `1px solid ${s.border}`,
-      background: s.bg, color: s.color, whiteSpace: "nowrap",
+      borderRadius: 4,
+      border: `1px solid ${dark ? s.darkBorder : s.border}`,
+      background: dark ? s.darkBg : s.bg,
+      color: dark ? s.darkColor : s.color,
+      whiteSpace: "nowrap",
     }}>
       {s.label}
     </span>
@@ -54,7 +107,7 @@ function PriorDots({ prior }) {
   );
 }
 
-function SignalRow({ sig }) {
+function SignalRow({ sig, dark }) {
   const [expanded, setExpanded] = useState(false);
 
   return (
@@ -63,37 +116,26 @@ function SignalRow({ sig }) {
         onClick={() => setExpanded(e => !e)}
         style={{ cursor: "pointer", borderBottom: "0.5px solid var(--color-border-tertiary)" }}
       >
-        {/* Ticker */}
         <td style={{ padding: "10px 12px", fontWeight: 500, fontSize: 14, fontFamily: "var(--font-mono)" }}>
           {sig.ticker}
         </td>
-
-        {/* Signal badges */}
         <td style={{ padding: "10px 8px" }}>
           <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
-            {sig.five_day  && <Badge type="five_day" />}
-            {sig.three_day && !sig.five_day  && <Badge type="three_day" />}
-            {!sig.five_day && !sig.three_day && sig.immediate && <Badge type="immediate" />}
-            {sig.banker_bull && <Badge type="bull" />}
+            {sig.five_day  && <Badge type="five_day"  dark={dark} />}
+            {sig.three_day && !sig.five_day  && <Badge type="three_day" dark={dark} />}
+            {!sig.five_day && !sig.three_day && sig.immediate && <Badge type="immediate" dark={dark} />}
+            {sig.banker_bull && <Badge type="bull" dark={dark} />}
           </div>
         </td>
-
-        {/* Banker RSI bar */}
         <td style={{ padding: "10px 8px" }}>
           <MiniBar value={sig.banker_rsi} />
         </td>
-
-        {/* Prior 5 dots */}
         <td style={{ padding: "10px 8px", fontSize: 13, color: "var(--color-text-secondary)" }}>
           <PriorDots prior={sig.prior_banker_rsi.slice(0, 5)} />
         </td>
-
-        {/* Close price */}
         <td style={{ padding: "10px 12px", fontSize: 13, textAlign: "right", color: "var(--color-text-secondary)" }}>
           ₹{sig.close.toFixed(2)}
         </td>
-
-        {/* Expand toggle */}
         <td style={{ padding: "10px 8px", fontSize: 16, color: "var(--color-text-secondary)", textAlign: "center" }}>
           {expanded ? "▲" : "▼"}
         </td>
@@ -103,8 +145,6 @@ function SignalRow({ sig }) {
         <tr style={{ background: "var(--color-background-secondary)" }}>
           <td colSpan={6} style={{ padding: "10px 16px 14px" }}>
             <div style={{ display: "flex", gap: 32, flexWrap: "wrap" }}>
-
-              {/* Prior day chips */}
               <div>
                 <div style={{ fontSize: 11, color: "var(--color-text-secondary)", marginBottom: 4 }}>
                   Prior days (newest → oldest)
@@ -113,9 +153,13 @@ function SignalRow({ sig }) {
                   {sig.prior_banker_rsi.map((p, i) => (
                     <div key={i} style={{
                       fontSize: 12, padding: "3px 8px", borderRadius: 4,
-                      background: p.banker_rsi > 0 ? "#EAF3DE" : "var(--color-background-primary)",
+                      background: p.banker_rsi > 0
+                        ? (dark ? "#1a3a06" : "#EAF3DE")
+                        : "var(--color-background-primary)",
                       border: "0.5px solid var(--color-border-tertiary)",
-                      color: p.banker_rsi > 0 ? "#3B6D11" : "var(--color-text-secondary)",
+                      color: p.banker_rsi > 0
+                        ? (dark ? "#c0dd97" : "#3B6D11")
+                        : "var(--color-text-secondary)",
                     }}>
                       {p.date.slice(5)}: <strong>{p.banker_rsi.toFixed(2)}</strong>
                     </div>
@@ -123,7 +167,6 @@ function SignalRow({ sig }) {
                 </div>
               </div>
 
-              {/* MA / Signal */}
               <div>
                 <div style={{ fontSize: 11, color: "var(--color-text-secondary)", marginBottom: 4 }}>
                   Banker MA / Signal
@@ -140,19 +183,17 @@ function SignalRow({ sig }) {
                 </div>
               </div>
 
-              {/* All signal labels */}
               <div>
                 <div style={{ fontSize: 11, color: "var(--color-text-secondary)", marginBottom: 4 }}>
                   Signal strength
                 </div>
                 <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                  {sig.five_day  && <Badge type="five_day" />}
-                  {sig.three_day && <Badge type="three_day" />}
-                  {sig.immediate && <Badge type="immediate" />}
-                  {sig.banker_bull && <Badge type="bull" />}
+                  {sig.five_day    && <Badge type="five_day"  dark={dark} />}
+                  {sig.three_day   && <Badge type="three_day" dark={dark} />}
+                  {sig.immediate   && <Badge type="immediate" dark={dark} />}
+                  {sig.banker_bull && <Badge type="bull"      dark={dark} />}
                 </div>
               </div>
-
             </div>
           </td>
         </tr>
@@ -249,11 +290,10 @@ function TradingViewPanel({ signals }) {
           <p style={{ fontSize: 12, color: "var(--color-text-secondary)", margin: 0 }}>
             Copy a list and paste it into TradingView's Watchlist import (+ → Import watchlist).
           </p>
-
           {[
-            { key: "five_day",  label: "5-day setups",  color: "#3B6D11" },
-            { key: "three_day", label: "3-day setups",  color: "#185FA5" },
-            { key: "immediate", label: "All RSI > 0",   color: "#854F0B" },
+            { key: "five_day",  label: "5-day setups",   color: "#3B6D11" },
+            { key: "three_day", label: "3-day setups",   color: "#185FA5" },
+            { key: "immediate", label: "All RSI > 0",    color: "#854F0B" },
             { key: "bull",      label: "Bull (RSI>8.5)", color: "#276749" },
           ].map(({ key, label, color }) => (
             <div key={key}>
@@ -278,7 +318,32 @@ function TradingViewPanel({ signals }) {
   );
 }
 
+function DarkModeToggle({ dark, setDark }) {
+  return (
+    <button
+      onClick={() => setDark(d => !d)}
+      title={dark ? "Switch to light mode" : "Switch to dark mode"}
+      style={{
+        background: "transparent",
+        border: "0.5px solid var(--color-border-secondary)",
+        borderRadius: 6, cursor: "pointer",
+        padding: "5px 10px", fontSize: 16, lineHeight: 1,
+        color: "var(--color-text-secondary)",
+        transition: "border-color 0.15s",
+      }}
+    >
+      {dark ? "☀️" : "🌙"}
+    </button>
+  );
+}
+
 export default function NseApp() {
+  const [dark, setDark] = useState(() => {
+    const saved = localStorage.getItem("nseRsiDark");
+    if (saved !== null) return saved === "true";
+    return window.matchMedia("(prefers-color-scheme: dark)").matches;
+  });
+
   const [dates,        setDates]        = useState([]);
   const [selectedDate, setSelectedDate] = useState("");
   const [signals,      setSignals]      = useState([]);
@@ -290,12 +355,18 @@ export default function NseApp() {
   const [sortCol,      setSortCol]      = useState(null);
   const [sortDir,      setSortDir]      = useState("asc");
 
+  // Persist preference and apply to body
+  useEffect(() => {
+    localStorage.setItem("nseRsiDark", dark);
+    document.body.style.background = dark ? "#1a1a18" : "#f8f8f6";
+    document.body.style.color = dark ? "#f0ede6" : "#1a1a18";
+  }, [dark]);
+
   const handleSort = (col) => {
     if (sortCol === col) setSortDir(d => d === "asc" ? "desc" : "asc");
     else { setSortCol(col); setSortDir("asc"); }
   };
 
-  // Load available dates on mount; re-check every 60s for new data
   const fetchDates = useCallback((isInitial = false) => {
     fetch(`${API}/dates`)
       .then(r => r.json())
@@ -314,7 +385,6 @@ export default function NseApp() {
         if (isInitial)
           setError("Cannot reach API at localhost:5001 — is the NSE Flask server running?");
       });
-
     fetch(`${API}/health`)
       .then(r => r.json())
       .then(d => setHealth(d))
@@ -327,7 +397,6 @@ export default function NseApp() {
     return () => clearInterval(id);
   }, [fetchDates]);
 
-  // Fetch signals whenever the selected date changes
   useEffect(() => {
     if (!selectedDate) return;
     setLoading(true);
@@ -356,7 +425,6 @@ export default function NseApp() {
     });
 
     if (!sortCol) return base;
-
     return [...base].sort((a, b) => {
       let av, bv;
       if      (sortCol === "ticker") { av = a.ticker;     bv = b.ticker; }
@@ -380,198 +448,195 @@ export default function NseApp() {
   };
 
   return (
-    <div style={{ fontFamily: "var(--font-sans)", padding: "1.5rem", maxWidth: 960 }}>
+    <>
+      <style>{`:root { ${dark ? DARK_VARS : LIGHT_VARS} }`}</style>
 
-      {/* Header */}
-      <div style={{ marginBottom: "1.5rem" }}>
-        <div style={{ display: "flex", alignItems: "baseline", gap: 12, marginBottom: 4 }}>
-          <span style={{ fontSize: 20, fontWeight: 500 }}>NSE Banker RSI signals</span>
-          {health && health.status === "ok" && (
-            <span style={{
-              fontSize: 12, color: "var(--color-text-success)",
-              background: "var(--color-background-success)",
-              padding: "2px 8px", borderRadius: 4,
-            }}>
-              DB connected · {health.rows?.toLocaleString()} rows
-            </span>
-          )}
-          {health && health.status === "error" && (
-            <span style={{
-              fontSize: 12, color: "var(--color-text-danger)",
-              background: "var(--color-background-danger)",
-              padding: "2px 8px", borderRadius: 4,
-            }}>
-              DB error
-            </span>
-          )}
-        </div>
-        <p style={{ fontSize: 14, color: "var(--color-text-secondary)", margin: 0 }}>
-          NSE EQ series tickers where banker_rsi crosses from 0 → above 0.
-          Three setups: 5-day silent period, 3-day, or immediate. Bull flag = banker_rsi &gt; 8.5.
-        </p>
-      </div>
+      <div style={{ fontFamily: "var(--font-sans)", padding: "1.5rem", maxWidth: 960 }}>
 
-      {/* Controls */}
-      <div style={{
-        display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap",
-        marginBottom: "1rem", padding: "12px 16px",
-        background: "var(--color-background-secondary)",
-        borderRadius: "var(--border-radius-md)",
-      }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <label style={{ fontSize: 13, color: "var(--color-text-secondary)" }}>Date</label>
-          <select
-            value={selectedDate}
-            onChange={e => setSelectedDate(e.target.value)}
-            style={{ fontSize: 13, padding: "5px 8px" }}
-          >
-            {dates.map(d => <option key={d} value={d}>{d}</option>)}
-          </select>
-        </div>
-        <input
-          type="text"
-          placeholder="Search ticker…"
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-          style={{ fontSize: 13, padding: "5px 10px", width: 150 }}
-        />
-      </div>
-
-      {/* Summary cards */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10, marginBottom: "1rem" }}>
-        {[
-          { key: "five_day",  label: "5-day setups",  bg: "#EAF3DE", color: "#3B6D11" },
-          { key: "three_day", label: "3-day setups",  bg: "#E6F1FB", color: "#185FA5" },
-          { key: "immediate", label: "RSI > 0 only",  bg: "#FAEEDA", color: "#854F0B" },
-          { key: "bull",      label: "Bull (RSI>8.5)", bg: "#F0FFF4", color: "#276749" },
-        ].map(card => (
-          <div
-            key={card.key}
-            onClick={() => setFilter(f => f === card.key ? "all" : card.key)}
-            style={{
-              padding: "12px 16px", borderRadius: "var(--border-radius-md)",
-              background: "var(--color-background-secondary)", cursor: "pointer",
-              border: filter === card.key
-                ? `1.5px solid ${card.color}`
-                : "0.5px solid var(--color-border-tertiary)",
-            }}
-          >
-            <div style={{ fontSize: 12, color: "var(--color-text-secondary)", marginBottom: 4 }}>
-              {card.label}
+        {/* Header */}
+        <div style={{ marginBottom: "1.5rem" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 4, justifyContent: "space-between" }}>
+            <div style={{ display: "flex", alignItems: "baseline", gap: 12 }}>
+              <span style={{ fontSize: 20, fontWeight: 500, color: "var(--color-text-primary)" }}>NSE Banker RSI signals</span>
+              {health && health.status === "ok" && (
+                <span style={{
+                  fontSize: 12, color: "var(--color-text-success)",
+                  background: "var(--color-background-success)",
+                  padding: "2px 8px", borderRadius: 4,
+                }}>
+                  DB connected · {health.rows?.toLocaleString()} rows
+                </span>
+              )}
+              {health && health.status === "error" && (
+                <span style={{
+                  fontSize: 12, color: "var(--color-text-danger)",
+                  background: "var(--color-background-danger)",
+                  padding: "2px 8px", borderRadius: 4,
+                }}>
+                  DB error
+                </span>
+              )}
             </div>
-            <div style={{ fontSize: 24, fontWeight: 500, color: card.color }}>
-              {counts[card.key]}
-            </div>
+            <DarkModeToggle dark={dark} setDark={setDark} />
           </div>
-        ))}
-      </div>
-
-      {/* Filter bar */}
-      <div style={{ marginBottom: "0.75rem" }}>
-        <FilterBar filter={filter} setFilter={setFilter} count={filtered.length} />
-      </div>
-
-      {/* TradingView copy panel */}
-      <TradingViewPanel signals={signals} />
-
-      {/* Error */}
-      {error && (
-        <div style={{
-          padding: "12px 16px", borderRadius: "var(--border-radius-md)",
-          background: "var(--color-background-danger)", color: "var(--color-text-danger)",
-          fontSize: 14, marginBottom: "1rem",
-        }}>
-          {error}
+          <p style={{ fontSize: 14, color: "var(--color-text-secondary)", margin: 0 }}>
+            NSE EQ series tickers where banker_rsi crosses from 0 → above 0.
+            Three setups: 5-day silent period, 3-day, or immediate. Bull flag = banker_rsi &gt; 8.5.
+          </p>
         </div>
-      )}
 
-      {/* Table */}
-      <div style={{
-        border: "0.5px solid var(--color-border-tertiary)",
-        borderRadius: "var(--border-radius-lg)", overflow: "hidden",
-      }}>
-        <table style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed" }}>
-          <colgroup>
-            <col style={{ width: "13%" }} />
-            <col style={{ width: "27%" }} />
-            <col style={{ width: "20%" }} />
-            <col style={{ width: "16%" }} />
-            <col style={{ width: "16%" }} />
-            <col style={{ width: "8%"  }} />
-          </colgroup>
-          <thead>
-            <tr style={{
-              background: "var(--color-background-secondary)",
-              borderBottom: "0.5px solid var(--color-border-tertiary)",
-            }}>
-              {[
-                { label: "Ticker",       col: "ticker", align: "left"  },
-                { label: "Signal",       col: "signal", align: "left"  },
-                { label: "Banker RSI",   col: "rsi",    align: "left"  },
-                { label: "Prior 5 days", col: null,     align: "left"  },
-                { label: "Close (₹)",    col: "close",  align: "right" },
-                { label: "",             col: null,     align: "center"},
-              ].map((h, i) => (
-                <th key={i}
-                  onClick={() => h.col && handleSort(h.col)}
-                  style={{
-                    padding: "8px 12px", fontSize: 11, fontWeight: 500,
-                    textAlign: h.align,
-                    color: sortCol === h.col
-                      ? "var(--color-text-primary)"
-                      : "var(--color-text-secondary)",
-                    textTransform: "uppercase", letterSpacing: "0.05em",
-                    cursor: h.col ? "pointer" : "default",
-                    userSelect: "none", whiteSpace: "nowrap",
-                  }}
-                >
-                  {h.label}
-                  {h.col && (
-                    <span style={{ marginLeft: 4, opacity: sortCol === h.col ? 1 : 0.3, fontSize: 10 }}>
-                      {sortCol === h.col ? (sortDir === "asc" ? "▲" : "▼") : "⇅"}
-                    </span>
-                  )}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {loading ? (
-              <tr>
-                <td colSpan={6} style={{ padding: 32, textAlign: "center", color: "var(--color-text-secondary)", fontSize: 14 }}>
+        {/* Controls */}
+        <div style={{
+          display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap",
+          marginBottom: "1rem", padding: "12px 16px",
+          background: "var(--color-background-secondary)",
+          borderRadius: "var(--border-radius-md)",
+        }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <label style={{ fontSize: 13, color: "var(--color-text-secondary)" }}>Date</label>
+            <select
+              value={selectedDate}
+              onChange={e => setSelectedDate(e.target.value)}
+              style={{ fontSize: 13, padding: "5px 8px" }}
+            >
+              {dates.map(d => <option key={d} value={d}>{d}</option>)}
+            </select>
+          </div>
+          <input
+            type="text"
+            placeholder="Search ticker…"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            style={{ fontSize: 13, padding: "5px 10px", width: 150 }}
+          />
+        </div>
+
+        {/* Summary cards */}
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10, marginBottom: "1rem" }}>
+          {[
+            { key: "five_day",  label: "5-day setups",   color: dark ? "#c0dd97" : "#3B6D11" },
+            { key: "three_day", label: "3-day setups",   color: dark ? "#85b7eb" : "#185FA5" },
+            { key: "immediate", label: "RSI > 0 only",   color: dark ? "#fac775" : "#854F0B" },
+            { key: "bull",      label: "Bull (RSI>8.5)", color: dark ? "#68d391" : "#276749" },
+          ].map(card => (
+            <div
+              key={card.key}
+              onClick={() => setFilter(f => f === card.key ? "all" : card.key)}
+              style={{
+                padding: "12px 16px", borderRadius: "var(--border-radius-md)",
+                background: "var(--color-background-secondary)", cursor: "pointer",
+                border: filter === card.key
+                  ? `1.5px solid ${card.color}`
+                  : "0.5px solid var(--color-border-tertiary)",
+              }}
+            >
+              <div style={{ fontSize: 12, color: "var(--color-text-secondary)", marginBottom: 4 }}>{card.label}</div>
+              <div style={{ fontSize: 24, fontWeight: 500, color: card.color }}>{counts[card.key]}</div>
+            </div>
+          ))}
+        </div>
+
+        {/* Filter bar */}
+        <div style={{ marginBottom: "0.75rem" }}>
+          <FilterBar filter={filter} setFilter={setFilter} count={filtered.length} />
+        </div>
+
+        {/* TradingView panel */}
+        <TradingViewPanel signals={signals} />
+
+        {/* Error */}
+        {error && (
+          <div style={{
+            padding: "12px 16px", borderRadius: "var(--border-radius-md)",
+            background: "var(--color-background-danger)", color: "var(--color-text-danger)",
+            fontSize: 14, marginBottom: "1rem",
+          }}>
+            {error}
+          </div>
+        )}
+
+        {/* Table */}
+        <div style={{
+          border: "0.5px solid var(--color-border-tertiary)",
+          borderRadius: "var(--border-radius-lg)", overflow: "hidden",
+        }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed" }}>
+            <colgroup>
+              <col style={{ width: "13%" }} />
+              <col style={{ width: "27%" }} />
+              <col style={{ width: "20%" }} />
+              <col style={{ width: "16%" }} />
+              <col style={{ width: "16%" }} />
+              <col style={{ width: "8%"  }} />
+            </colgroup>
+            <thead>
+              <tr style={{
+                background: "var(--color-background-secondary)",
+                borderBottom: "0.5px solid var(--color-border-tertiary)",
+              }}>
+                {[
+                  { label: "Ticker",       col: "ticker", align: "left"   },
+                  { label: "Signal",       col: "signal", align: "left"   },
+                  { label: "Banker RSI",   col: "rsi",    align: "left"   },
+                  { label: "Prior 5 days", col: null,     align: "left"   },
+                  { label: "Close (₹)",    col: "close",  align: "right"  },
+                  { label: "",             col: null,     align: "center" },
+                ].map((h, i) => (
+                  <th key={i}
+                    onClick={() => h.col && handleSort(h.col)}
+                    style={{
+                      padding: "8px 12px", fontSize: 11, fontWeight: 500,
+                      textAlign: h.align,
+                      color: sortCol === h.col ? "var(--color-text-primary)" : "var(--color-text-secondary)",
+                      textTransform: "uppercase", letterSpacing: "0.05em",
+                      cursor: h.col ? "pointer" : "default",
+                      userSelect: "none", whiteSpace: "nowrap",
+                    }}
+                  >
+                    {h.label}
+                    {h.col && (
+                      <span style={{ marginLeft: 4, opacity: sortCol === h.col ? 1 : 0.3, fontSize: 10 }}>
+                        {sortCol === h.col ? (sortDir === "asc" ? "▲" : "▼") : "⇅"}
+                      </span>
+                    )}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {loading ? (
+                <tr><td colSpan={6} style={{ padding: 32, textAlign: "center", color: "var(--color-text-secondary)", fontSize: 14 }}>
                   Loading…
-                </td>
-              </tr>
-            ) : filtered.length === 0 ? (
-              <tr>
-                <td colSpan={6} style={{ padding: 32, textAlign: "center", color: "var(--color-text-secondary)", fontSize: 14 }}>
+                </td></tr>
+              ) : filtered.length === 0 ? (
+                <tr><td colSpan={6} style={{ padding: 32, textAlign: "center", color: "var(--color-text-secondary)", fontSize: 14 }}>
                   No signals for {selectedDate} with current filter.
-                </td>
-              </tr>
-            ) : (
-              filtered.map(sig => <SignalRow key={sig.ticker} sig={sig} />)
-            )}
-          </tbody>
-        </table>
-      </div>
+                </td></tr>
+              ) : (
+                filtered.map(sig => <SignalRow key={sig.ticker} sig={sig} dark={dark} />)
+              )}
+            </tbody>
+          </table>
+        </div>
 
-      {/* Legend */}
-      <div style={{ marginTop: "1rem", display: "flex", gap: 16, flexWrap: "wrap" }}>
-        <span style={{ fontSize: 12, color: "var(--color-text-secondary)" }}>
-          <span style={{ display: "inline-block", width: 8, height: 8, borderRadius: "50%", background: "#639922", marginRight: 4 }} />
-          banker_rsi &gt; 0
-        </span>
-        <span style={{ fontSize: 12, color: "var(--color-text-secondary)" }}>
-          <span style={{ display: "inline-block", width: 8, height: 8, borderRadius: "50%", background: "#B4B2A9", marginRight: 4 }} />
-          banker_rsi = 0
-        </span>
-        <span style={{ fontSize: 12, color: "var(--color-text-secondary)" }}>
-          Bull ▲ = banker_rsi &gt; 8.5 (strong confirmation)
-        </span>
-        <span style={{ fontSize: 12, color: "var(--color-text-secondary)" }}>
-          Click any row to expand prior days &amp; MA/Signal values
-        </span>
+        {/* Legend */}
+        <div style={{ marginTop: "1rem", display: "flex", gap: 16, flexWrap: "wrap" }}>
+          <span style={{ fontSize: 12, color: "var(--color-text-secondary)" }}>
+            <span style={{ display: "inline-block", width: 8, height: 8, borderRadius: "50%", background: "#639922", marginRight: 4 }} />
+            banker_rsi &gt; 0
+          </span>
+          <span style={{ fontSize: 12, color: "var(--color-text-secondary)" }}>
+            <span style={{ display: "inline-block", width: 8, height: 8, borderRadius: "50%", background: "#B4B2A9", marginRight: 4 }} />
+            banker_rsi = 0
+          </span>
+          <span style={{ fontSize: 12, color: "var(--color-text-secondary)" }}>
+            Bull ▲ = banker_rsi &gt; 8.5 (strong confirmation)
+          </span>
+          <span style={{ fontSize: 12, color: "var(--color-text-secondary)" }}>
+            Click any row to expand prior days &amp; MA/Signal values
+          </span>
+        </div>
       </div>
-    </div>
+    </>
   );
 }

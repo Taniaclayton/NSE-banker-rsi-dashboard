@@ -22,14 +22,16 @@ from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 
 # ── EDIT THESE ────────────────────────────────────────────────────────────────
-WATCH_FOLDER  = r"D:\Trading\nse dashboard\banker dashboard\data"
-LOADER_SCRIPT = r"D:\Trading\nse_to_mysql_with_banker_signal.py"
-# ─────────────────────────────────────────────────────────────────────────────
-
+from dotenv import load_dotenv
 import os
+load_dotenv()
+
 os.environ["PYTHONIOENCODING"] = "utf-8"
-PYTHON  = r"D:\Programs\python\python.exe"   # same Python that runs this script
-running = False                               # prevent overlapping runs
+WATCH_FOLDER  = os.getenv("EOD_FOLDER")
+LOADER_SCRIPT = os.getenv("LOADER_SCRIPT", ...)
+PYTHON        = os.getenv("PYTHON_PATH", sys.executable)
+
+running = False  # ← add this line here, before the class definition
 
 
 class NewFileHandler(FileSystemEventHandler):

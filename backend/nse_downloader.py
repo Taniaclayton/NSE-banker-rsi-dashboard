@@ -15,7 +15,7 @@ from webdriver_manager.chrome import ChromeDriverManager
 
 load_dotenv()
 
-NSE_DATA_FOLDER = os.getenv("NSE_DATA_FOLDER")
+EOD_FOLDER = os.getenv("EOD_FOLDER")
 DOWNLOAD_DIR    = os.getenv("DOWNLOAD_DIR")
 
 URL = "https://www.samco.in/bhavcopy-nse-bse-mcx"
@@ -133,16 +133,23 @@ def main():
                 if not nse_files:
                     print(f"ERROR: No NSE CSV found in zip. Contents: {z.namelist()}")
                     sys.exit(1)
-                extracted = nse_files[0]
-                z.extract(extracted, DOWNLOAD_DIR)
-                print(f"Extracted: {extracted}")
-            os.remove(src)
-            src = os.path.join(DOWNLOAD_DIR, extracted)
-            filename = extracted
 
-        dst = os.path.join(NSE_DATA_FOLDER, filename)
-        shutil.move(src, dst)
-        print(f"Moved to: {dst}")
+                # Extract ALL NSE files, not just the first one
+                for nse_file in nse_files:
+                    z.extract(nse_file, DOWNLOAD_DIR)
+                    print(f"Extracted: {nse_file}")
+                    src_file = os.path.join(DOWNLOAD_DIR, nse_file)
+                    dst_file = os.path.join(NSE_DATA_FOLDER, os.path.basename(nse_file))
+                    shutil.move(src_file, dst_file)
+                    print(f"Moved to: {dst_file}")
+
+            os.remove(src)  # Remove the zip after extracting all files
+
+        else:
+            # Single CSV case (filetype == "csv")
+            dst = os.path.join(NSE_DATA_FOLDER, filename)
+            shutil.move(src, dst)
+            print(f"Moved to: {dst}")
 
     finally:
         driver.quit()
